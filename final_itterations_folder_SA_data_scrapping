@@ -1,0 +1,184 @@
+import PyPDF2
+import re
+import pypdf
+import fitz
+import pandas as pd
+from pypdf import PdfReader
+import numpy as np
+import os
+#for decemebr it takes 43 seconds to run 
+def get_pdf_text(filepath):
+    text = ''
+    with fitz.open(filepath) as doc:
+        for page in doc:
+            text += page.get_text()
+    return text
+
+folder_path = "/Users/u60186/Downloads/Dec-23/Dec-23"  # Replace this with your folder path
+text = ''
+
+for filename in os.listdir(folder_path):
+    if filename.endswith('.pdf'):
+        filepath = os.path.join(folder_path, filename)
+        text += get_pdf_text(filepath)
+def process_text(text, df, words_to_find,lines_to_find):
+    # Splitting the text based on "Limited Morning Report"
+    reports = text.split("Limited Morning Report for")
+    lines=text.split('\n')
+    for i, report in enumerate(reports[1:], start=1):
+        # Extracting words after "Limited Morning Report"
+        words = report.split()
+        for word in words_to_find:
+            if word in words:
+                index_row = i  # Row number for the DataFrame
+                for index, current_word in enumerate(words):
+                    if current_word.lower() == word.lower():
+                        if index + 1 < len(words):
+                            next_word = words[index + 1]
+                            df.loc[index_row, word] = next_word
+                            break
+
+# Sample DataFrame 
+words_to_find = ["EPPR","Well","Rig","Daily", "DV TOOL", "RTTS", "DLT","INTERWELL"]
+lines=["Size"]
+df = pd.DataFrame(columns=["EPPR","Well", "Rig","Daily", "RTTS","INTERWELL", "DLT","Last Csg Size"])
+process_text(text, df, words_to_find, lines)
+def process_line(text, df, words_to_find):
+    # Splitting the text based on "Limited Morning Report"
+    reports = text.split("Limited Morning Report")
+    
+    # Create a dictionary to map well names to row indices
+    well_row_mapping = {}
+    
+    for i, report in enumerate(reports[1:], start=1):
+        lines = report.split('\n')
+        well_name = None
+        
+        for line_index, line in enumerate(lines):
+            for word in words_to_find:
+                if word in line:
+                    next_line = lines[line_index + 1]
+                    
+                    # Assuming well name is in the line preceding the word found
+                    well_name = lines[line_index - 1].strip() if line_index > 0 else None
+                    if well_name:
+                        well_row_mapping[well_name] = i
+                    
+                    # Update DataFrame using the mapped row index for the well name
+                    if well_name in well_row_mapping:
+                        df.loc[well_row_mapping[well_name], word] = next_line
+
+
+#look for the words that you need the next number/line
+words_to_find=["DV TOOL","Last Csg Size"]
+# Sample DataFrame
+process_line(text, df, words_to_find)
+
+word="INTERWELL"
+repeats_count = df[word].value_counts()
+total_count = repeats_count.sum()
+print(f"Total count of occurrences '{word}' ran plug in december & november", total_count)
+
+#no repeats of different wells 
+new_df = df.dropna(subset=['RTTS']).reset_index(drop=True)
+final_df = new_df.drop_duplicates(subset=["Well"]).reset_index(drop=True)
+total_count=len(final_df)
+print(f"Total count of occurrences '{word}' ran plug in december & november without repeats of well", total_count)
+
+#code to compare two different words within a cell function to see percentage of two correct statements
+def comparing_two(df, two_words):
+    first_word = two_words.iloc[0]  # Assuming two_words is a pandas Series or list containing two words
+    second_word = two_words.iloc[1]
+    
+    count = 0
+    total = len(df)  # Total number of rows in the DataFrame
+    
+    for _, row in df.iterrows():
+        # Check if both words exist in the row values considering numbers like "9 5/8" as a word
+        if any(first_word.lower() in str(val).lower() for val in row.values) and \
+           any(second_word.lower() in str(val).lower() for val in row.values):
+            count += 1
+    print("Number of times both words appear in the same row:", count)
+    print("Total number of rows:", total)
+    if total > 0:
+        percentage = (count / total) * 100
+        print(f"Percentage of rows containing both words: {percentage:.2f}%")
+words_to_compare = pd.Series(['DV TOOL', '9 5/8'])
+
+# Call the function
+comparing_two(df, words_to_compare)
+Number of times both words appear in the same row: 0
+Total number of rows: 11251
+Percentage of rows containing both words: 0.00%
+def comparing_words_and_column(df, first_word, second_word_series):
+    count = 0
+    total = len(df)
+
+    for index, row in df.iterrows():
+        for col_name, cell_value in row.items():
+            if first_word.lower() in str(cell_value).lower() and pd.notnull(second_word_series[index]):
+                count += 1
+                break 
+
+    #print(f"Number of times '{first_word}' and '{second_word}' appear in the same row and column:", count)
+    #print("Total number of rows:", total)
+    
+    if total > 0:
+        percentage = (count / total) * 100
+        print(f"Percentage of operations containing 'offshore' and interwell plugs: {percentage:.2f}%")
+    return count
+         
+first_word = "13 3/8"
+second_word = df.loc[:,"RTTS"]
+csg_13=comparing_words_and_column(df, first_word, second_word)
+
+
+def comparing_words_and_column(df, first_word_series, second_word_series):
+    count = 0
+    total = len(df)
+
+    for index, row in df.iterrows():
+        if pd.isnull(first_word_series[index]) and pd.notnull(second_word_series[index]):
+            count += 1
+            break 
+
+    if total > 0:
+        percentage = (count / total) * 100
+        print(f"Percentage of operations containing '{first_word_series.name}' and '{second_word_series.name}': {percentage:.2f}%")
+
+    return count
+first_word =df.loc[:,"Last Csg Size"]
+second_word = df.loc[:,"DLT"]
+csg_NaN=comparing_words_and_column(df, first_word, second_word
+
+
+
+labels = ['csg NaN', 'csg 9 5/8', 'csg 13 3/8', 'csg 7', 'csg 18 5/8']
+
+# Values for each variable
+sizes = [csg_NaN, csg_9, csg_13, csg_7, csg_18]
+
+# Plotting the pie chart
+plt.figure(figsize=(8, 8))
+plt.pie(sizes, labels=labels, explode=explode, autopct='%1.1f%%', startangle=140)
+plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+
+# Title of the pie chart
+plt.title('Pie chart of casing size when the word DLT')
+
+# Show the pie chart
+plt.show()
+#bar chart
+total = len(df)
+labels = ['csg NaN', 'csg 9 5/8', 'csg 13 3/8', 'csg 7','total DV TOOL', '18']
+values = [csg_NaN, csg_9, csg_13, csg_7,total_count, csg_18]
+
+for i in range(len(labels)):
+    plt.text(i, values[i] + 0.1, str(values[i]), ha='center', va='bottom')
+    
+plt.bar(labels, values)
+plt.xlabel('Variables')
+plt.xticks(fontsize=8)  # Set x-axis label font size
+plt.ylabel('Count')
+plt.title('Occurances of DLT and casing size in November and December reports')
+plt.show()
